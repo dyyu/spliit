@@ -47,9 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
 
+    # Plain identifiers, not credentials — kept as repository variables so they
+    # appear in logs. Only VERCEL_TOKEN authenticates and needs to be a secret.
     env:
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
 
     steps:
       - name: Check out repository
@@ -68,7 +70,10 @@ jobs:
       # .vercel/.env.production.local, so Vercel stays the single source of
       # truth for configuration and we don't duplicate secrets in GitHub.
       - name: Pull Vercel environment
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+          echo "Variables pulled from Vercel (names only):"
+          grep -v '^#' .vercel/.env.production.local | cut -d= -f1 | sort
 
       - name: Install dependencies
         run: npm ci
@@ -82,8 +87,14 @@ jobs:
           set +a
           npx prisma migrate deploy
 
+      # src/lib/env.ts validates env at module load during `next build`, so the
+      # pulled variables must be in the process environment, not just on disk.
       - name: Build
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -a
+          . .vercel/.env.production.local
+          set +a
+          vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
