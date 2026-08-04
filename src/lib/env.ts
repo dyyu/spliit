@@ -36,6 +36,10 @@ const envSchema = z
       z.boolean().default(false),
     ),
     OPENAI_API_KEY: z.string().optional(),
+    // Enables the ops view at /ops when set. Declared here for discoverability,
+    // but `src/lib/ops-auth.ts` intentionally reads process.env directly rather
+    // than importing this module — see the comment there.
+    OPS_PASSWORD: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (

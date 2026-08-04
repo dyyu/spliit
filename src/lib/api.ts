@@ -151,6 +151,109 @@ export async function getGroups(groupIds: string[]) {
   }))
 }
 
+/**
+ * Every group in the database, with the counts and totals the ops view shows.
+ *
+ * Uses three constant-count queries rather than per-group lookups. Note this
+ * deliberately does not go through `getGroupExpenses`, which calls
+ * `createRecurringExpenses` and therefore writes to the database — a listing
+ * must not mutate.
+ */
+export async function getAllGroupsWithStats({ take = 500 } = {}) {
+  // Fetching one extra row detects truncation without a second count query.
+  const found = await prisma.group.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: take + 1,
+    include: { _count: { select: { participants: true, expenses: true } } },
+  })
+
+  const truncated = found.length > take
+  const groups = truncated ? found.slice(0, take) : found
+  const groupIds = groups.map((group) => group.id)
+
+  if (groupIds.length === 0) return { groups: [], truncated }
+
+  const [expenseStats, activityStats] = await Promise.all([
+    // Grouping by isReimbursement lets one query serve both the spending total
+    // (reimbursements excluded, matching getTotalGroupSpending) and the date of
+    // the most recent expense (all rows).
+    prisma.expense.groupBy({
+      by: ['groupId', 'isReimbursement'],
+      where: { groupId: { in: groupIds } },
+      _sum: { amount: true },
+      _max: { expenseDate: true },
+    }),
+    // Group has no updatedAt, so the activity log is the only record of when a
+    // group was last touched.
+    prisma.activity.groupBy({
+      by: ['groupId'],
+      where: { groupId: { in: groupIds } },
+      _max: { time: true },
+    }),
+  ])
+
+  const totals = new Map<string, number>()
+  const lastExpenseDates = new Map<string, Date>()
+  for (const row of expenseStats) {
+    if (!row.isReimbursement) {
+      totals.set(
+        row.groupId,
+        (totals.get(row.groupId) ?? 0) + (row._sum.amount ?? 0),
+      )
+    }
+    const date = row._max.expenseDate
+    const known = lastExpenseDates.get(row.groupId)
+    if (date && (!known || date > known))
+      lastExpenseDates.set(row.groupId, date)
+  }
+
+  const lastActivityDates = new Map(
+    activityStats.flatMap((row) =>
+      row._max.time ? [[row.groupId, row._max.time]] : [],
+    ),
+  )
+
+  return {
+    truncated,
+    groups: groups.map((group) => {
+      const candidates = [
+        group.createdAt,
+        lastExpenseDates.get(group.id),
+        lastActivityDates.get(group.id),
+      ].filter((date): date is Date => date !== undefined)
+
+      return {
+        ...group,
+        totalSpending: totals.get(group.id) ?? 0,
+        lastActivityAt: new Date(
+          Math.max(...candidates.map((d) => d.getTime())),
+        ),
+      }
+    }),
+  }
+}
+
+/**
+ * Deletes a group and everything belonging to it.
+ *
+ * Participants, expenses, shares, activities and recurring expense links are
+ * removed by database cascades. Expense documents are not: their foreign key is
+ * ON DELETE SET NULL (see migration 20240128193431_update_documents), so the
+ * group -> expense cascade would leave unreachable document rows behind. They
+ * are deleted explicitly, in the same transaction.
+ *
+ * Note the S3 objects those documents point at are not removed.
+ */
+export async function deleteGroup(groupId: string) {
+  return prisma.$transaction(async (tx) => {
+    const { count: documents } = await tx.expenseDocument.deleteMany({
+      where: { Expense: { is: { groupId } } },
+    })
+    await tx.group.delete({ where: { id: groupId } })
+    return { documents }
+  })
+}
+
 export async function updateExpense(
   groupId: string,
   expenseId: string,
