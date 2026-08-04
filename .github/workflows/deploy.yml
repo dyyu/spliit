@@ -69,6 +69,16 @@ jobs:
       # Downloads project settings and production env vars into
       # .vercel/.env.production.local, so Vercel stays the single source of
       # truth for configuration and we don't duplicate secrets in GitHub.
+      # Prints the identity and teams the token can reach — never the token
+      # itself. `Could not retrieve Project Settings` means the token cannot
+      # see team_ekTfaMc2NM5gmw8sMMcM8kjr, which this makes visible.
+      - name: Check token scope
+        run: |
+          echo "Token belongs to:"
+          vercel whoami --token=${{ secrets.VERCEL_TOKEN }} || true
+          echo "Teams reachable by this token:"
+          vercel teams ls --token=${{ secrets.VERCEL_TOKEN }} || true
+
       - name: Pull Vercel environment
         run: |
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
