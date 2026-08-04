@@ -3,6 +3,12 @@
 
 generator client {
   provider = "prisma-client-js"
+  // The deploy workflow builds on a Debian GitHub runner and ships the result
+  // to Vercel with `vercel deploy --prebuilt`, so the query engine has to be
+  // generated for Vercel's Amazon Linux runtime here rather than at deploy
+  // time. Without rhel-openssl-3.0.x every query fails at runtime, even though
+  // migrations and the build succeed.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
