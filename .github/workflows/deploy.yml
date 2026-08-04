@@ -66,9 +66,6 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
 
-      # Downloads project settings and production env vars into
-      # .vercel/.env.production.local, so Vercel stays the single source of
-      # truth for configuration and we don't duplicate secrets in GitHub.
       # Prints the identity and teams the token can reach — never the token
       # itself. `Could not retrieve Project Settings` means the token cannot
       # see team_ekTfaMc2NM5gmw8sMMcM8kjr, which this makes visible.
@@ -79,30 +76,42 @@ jobs:
           echo "Teams reachable by this token:"
           vercel teams ls --token=${{ secrets.VERCEL_TOKEN }} || true
 
+      # Downloads project settings and production env vars into
+      # .vercel/.env.production.local, so Vercel stays the source of truth for
+      # ordinary configuration. The database URLs are the exception: they are
+      # stored on Vercel as Sensitive so nobody can read them back, which means
+      # they arrive here as the literal string [SENSITIVE]. Strip those lines so
+      # they cannot shadow the real values, which come from GitHub secrets.
       - name: Pull Vercel environment
         run: |
           vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-          echo "Variables pulled from Vercel (names only):"
-          grep -v '^#' .vercel/.env.production.local | cut -d= -f1 | sort
+          grep -v '\[SENSITIVE\]' .vercel/.env.production.local > .vercel/.env.build || true
+          echo "Usable variables pulled from Vercel (names only):"
+          grep -v '^#' .vercel/.env.build | cut -d= -f1 | sort
 
       - name: Install dependencies
         run: npm ci
 
       # Runs before the build so the schema is in place by the time the new
-      # code is live. A failure here aborts the deploy.
+      # code is live. A failure here aborts the deploy. Prisma connects via
+      # directUrl (POSTGRES_URL_NON_POOLING) for migrations, but requires both
+      # to be set.
       - name: Apply database migrations
-        run: |
-          set -a
-          . .vercel/.env.production.local
-          set +a
-          npx prisma migrate deploy
+        env:
+          POSTGRES_PRISMA_URL: ${{ secrets.POSTGRES_PRISMA_URL }}
+          POSTGRES_URL_NON_POOLING: ${{ secrets.POSTGRES_URL_NON_POOLING }}
+        run: npx prisma migrate deploy
 
       # src/lib/env.ts validates env at module load during `next build`, so the
-      # pulled variables must be in the process environment, not just on disk.
+      # database URLs must be in the process environment even though nothing is
+      # prerendered from the database and no connection is opened here.
       - name: Build
+        env:
+          POSTGRES_PRISMA_URL: ${{ secrets.POSTGRES_PRISMA_URL }}
+          POSTGRES_URL_NON_POOLING: ${{ secrets.POSTGRES_URL_NON_POOLING }}
         run: |
           set -a
-          . .vercel/.env.production.local
+          . .vercel/.env.build
           set +a
           vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
