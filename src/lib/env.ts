@@ -13,7 +13,13 @@ const envSchema = z
       .string()
       .optional()
       .default(
-        process.env.VERCEL_URL
+        // VERCEL_PROJECT_PRODUCTION_URL is the project's stable production
+        // domain (the shortest custom domain, or the vercel.app one). Prefer it
+        // over VERCEL_URL, which names the individual deployment and therefore
+        // changes every time, breaking any link that outlives the deployment.
+        process.env.VERCEL_PROJECT_PRODUCTION_URL
+          ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+          : process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
           : 'http://localhost:3000',
       ),
