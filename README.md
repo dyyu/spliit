@@ -58,8 +58,9 @@ Here is the current state of translation:
 1. Clone the repository (or fork it if you intend to contribute)
 2. Start a PostgreSQL server. You can run `./scripts/start-local-db.sh` if you don’t have a server already.
 3. Copy the file `.env.example` as `.env`
-4. Run `npm install` to install dependencies. This will also apply database migrations and update Prisma Client.
-5. Run `npm run dev` to start the development server
+4. Run `npm install` to install dependencies and generate Prisma Client
+5. Run `npx prisma migrate deploy` to create the database schema
+6. Run `npm run dev` to start the development server
 
 ## Run in a container
 
@@ -76,6 +77,25 @@ The application has a health check endpoint that can be used to check if the app
 - `GET /api/health/liveness` - Check if the application is running, but not necessarily ready to serve requests.
 
 ## Opt-in features
+
+### Ops view
+
+Spliit has no accounts, so a group URL is the only thing protecting a group. That
+makes an operator listing of every group sensitive, and it is disabled unless you
+set a password:
+
+```.env
+OPS_PASSWORD=a-long-random-value
+```
+
+With it set, `/ops` lists every group with its participant and expense counts,
+totals and dates, and allows deleting one. The page is protected by HTTP Basic
+auth — any username, this password. Leave the variable unset and `/ops` returns
+404.
+
+Generate the value with something like `openssl rand -base64 24`. There is no
+rate limiting, so the password is the only thing standing between a visitor and
+every group in your database.
 
 ### Expense documents
 
