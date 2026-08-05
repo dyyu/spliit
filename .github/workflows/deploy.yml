@@ -3,6 +3,12 @@ name: Deploy
 on:
   push:
     branches: ['main']
+    # Documentation cannot change what gets deployed. workflow_dispatch stays
+    # available for deploying a commit that only touched these.
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch:
 
 # Never let two production deploys (or two migration runs) overlap.
